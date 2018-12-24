@@ -422,35 +422,42 @@ func RecoverCompact(curve *KoblitzCurve, signature,
 func signRFC6979(privateKey *PrivateKey, hash []byte) (*Signature, error) {
 
 	privkey := privateKey.ToECDSA()
+	e := hashToInt(hash, privkey.Curve)
 	N := S256().N
 	halfOrder := S256().halfOrder
-	k := nonceRFC6979(privkey.D, hash)
-	inv := new(big.Int).ModInverse(k, N)
-	r, _ := privkey.Curve.ScalarBaseMult(k.Bytes())
-	r.Mod(r, N)
+	skipValidNonces := 0
+	for {
+		k := nonceRFC6979(privkey.D, hash, skipValidNonces)
+		r, _ := privkey.Curve.ScalarBaseMult(k.Bytes())
+		r.Mod(r, N)
 
-	if r.Sign() == 0 {
-		return nil, errors.New("calculated R is zero")
-	}
+		if r.Sign() == 0 {
+			skipValidNonces++
+			continue
+		}
 
-	e := hashToInt(hash, privkey.Curve)
-	s := new(big.Int).Mul(privkey.D, r)
-	s.Add(s, e)
-	s.Mul(s, inv)
-	s.Mod(s, N)
+		invK := new(big.Int).ModInverse(k, N)
+		s := new(big.Int).Mul(privkey.D, r)
+		s.Add(s, e)
+		s.Mul(s, invK)
+		s.Mod(s, N)
 
-	if s.Cmp(halfOrder) == 1 {
-		s.Sub(N, s)
+		if s.Cmp(halfOrder) == 1 {
+			s.Sub(N, s)
+		}
+		if s.Sign() == 0 {
+			skipValidNonces++
+			continue
+		}
+		return &Signature{R: r, S: s}, nil
 	}
-	if s.Sign() == 0 {
-		return nil, errors.New("calculated S is zero")
-	}
-	return &Signature{R: r, S: s}, nil
 }
 
 // nonceRFC6979 generates an ECDSA nonce (`k`) deterministically according to RFC 6979.
-// It takes a 32-byte hash as an input and returns 32-byte nonce to be used in ECDSA algorithm.
-func nonceRFC6979(privkey *big.Int, hash []byte) *big.Int {
+// It takes a private key, a 32-byte hash, and an int counter for number of valid nonces to skip
+// and returns a big.Int. If the R or S is invalid, create a loop in the calling func to
+// increment the counter and get a different nonce.
+func nonceRFC6979(privkey *big.Int, hash []byte, skipValidNonces int) *big.Int {
 
 	curve := S256()
 	q := curve.Params().N
@@ -494,7 +501,10 @@ func nonceRFC6979(privkey *big.Int, hash []byte) *big.Int {
 		// Step H3
 		secret := hashToInt(t, curve)
 		if secret.Cmp(one) >= 0 && secret.Cmp(q) < 0 {
-			return secret
+			if skipValidNonces <= 0 {
+				return secret
+			}
+			skipValidNonces--
 		}
 		k = mac(alg, k, append(v, 0x00))
 		v = mac(alg, k, v)
