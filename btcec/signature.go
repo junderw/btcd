@@ -427,29 +427,29 @@ func signRFC6979(privateKey *PrivateKey, hash []byte) (*Signature, error) {
 	halfOrder := S256().halfOrder
 	skipValidNonces := 0
 	for {
-	k := nonceRFC6979(privkey.D, hash, skipValidNonces)
-	r, _ := privkey.Curve.ScalarBaseMult(k.Bytes())
-	r.Mod(r, N)
+		k := nonceRFC6979(privkey.D, hash, skipValidNonces)
+		r, _ := privkey.Curve.ScalarBaseMult(k.Bytes())
+		r.Mod(r, N)
 
-	if r.Sign() == 0 {
-		skipValidNonces++
-		continue
-	}
+		if r.Sign() == 0 {
+			skipValidNonces++
+			continue
+		}
 
-	invK := new(big.Int).ModInverse(k, N)
-	s := new(big.Int).Mul(privkey.D, r)
-	s.Add(s, e)
-	s.Mul(s, invK)
-	s.Mod(s, N)
+		invK := new(big.Int).ModInverse(k, N)
+		s := new(big.Int).Mul(privkey.D, r)
+		s.Add(s, e)
+		s.Mul(s, invK)
+		s.Mod(s, N)
 
-	if s.Cmp(halfOrder) == 1 {
-		s.Sub(N, s)
-	}
-	if s.Sign() == 0 {
-		skipValidNonces++
-		continue
-	}
-	return &Signature{R: r, S: s}, nil
+		if s.Cmp(halfOrder) == 1 {
+			s.Sub(N, s)
+		}
+		if s.Sign() == 0 {
+			skipValidNonces++
+			continue
+		}
+		return &Signature{R: r, S: s}, nil
 	}
 }
 
